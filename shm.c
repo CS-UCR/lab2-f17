@@ -29,21 +29,82 @@ void shminit() {
 }
 
 int shm_open(int id, char **pointer) {
+  int found = 0; 
+  int i = 0;
+  int emptyIndex = -1;
+  char* mem = 0;
 
-//you write this
+  acquire(&(shm_table.lock));
+  for(; i<64; i++)
+  {
+    if(shm_table.shm_pages[i].id == id)
+    {
+      found = 1;
+      if(mappages(myproc()->pgdir, (char*)myproc()->sz, PGSIZE, V2P(shm_table.shm_pages[i].frame), PTE_W|PTE_U) < 0)
+      {
+        cprintf("mapping segment id to an available page failed\n");
+      } else {
+        shm_table.shm_pages[i].refcnt++;
+        *pointer=(char *)myproc()->sz;
+        myproc()->sz += PGSIZE;
+      }
+      break;
+    }
+    else if(!shm_table.shm_pages[i].id) {
+      emptyIndex = i;
+    }
+  }
 
+  if(!found)
+  {
+    shm_table.shm_pages[emptyIndex].id = id;
 
+    mem = kalloc();
+    if(!mem)
+    {
+      cprintf("Out of memory\n");
+      goto bad;
+    }
+    memset(mem, 0, PGSIZE);
+    shm_table.shm_pages[emptyIndex].frame = mem;
+    shm_table.shm_pages[emptyIndex].refcnt = 1;
 
-
-return 0; //added to remove compiler warning -- you should decide what to return
+    if(mappages(myproc()->pgdir, (char*)myproc()->sz, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0)
+    {
+      cprintf("Out of memory\n");
+      kfree(mem);
+    }
+    else {
+      *pointer =(char *)myproc()->sz;
+      myproc()->sz += PGSIZE;
+    }
+  }
+  release(&(shm_table.lock));
+  bad:
+  return 0; 
 }
 
 
 int shm_close(int id) {
-//you write this too!
+  int i = 0;
 
+  acquire(&(shm_table.lock));
+  for(; i<64; i++)
+  {
+    if(shm_table.shm_pages[i].id == id)
+    {
+      shm_table.shm_pages[i].refcnt--;
 
+      if(!shm_table.shm_pages[i].refcnt)
+      {
+        shm_table.shm_pages[i].frame=0;
+        shm_table.shm_pages[i].id = 0;
+      }
 
+      break;
+    }
+  }
+  release(&(shm_table.lock));
 
-return 0; //added to remove compiler warning -- you should decide what to return
+  return 0;
 }
